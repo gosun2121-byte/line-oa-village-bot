@@ -8,13 +8,15 @@ import os
 
 app = Flask(__name__)
 
-CHANNEL_ACCESS_TOKEN = "AS9ZGQqAWg9SK4KD7yMyLUGyTH5A8xvlHjRMdR5ohBZ903bA+Sz060KWiQ4E/3SAjnGs34WevGz+rbcp4PK+U9I0D+LsAFw1XKYQrzaYRPv70kRDHPUC7hzKJrK562wv6Pqh9NM6XHepZIT7EyeEbwdB04t89/1O/w1cDnyilFU="
-CHANNEL_SECRET = "ebb901867293f260644563b260c06d08"
+# ดึงค่าจาก Environment Variables (Render) หรือใช้ค่า Default (ถ้ามี)
+CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN", "AS9ZGQqAWg9SK4KD7yMyLUGyTH5A8xvlHjRMdR5ohBZ903bA+Sz060KWiQ4E/3SAjnGs34WevGz+rbcp4PK+U9I0D+LsAFw1XKYQrzaYRPv70kRDHPUC7hzKJrK562wv6Pqh9NM6XHepZIT7EyeEbwdB04t89/1O/w1cDnyilFU=")
+CHANNEL_SECRET = os.environ.get("CHANNEL_SECRET", "ebb901867293f260644563b260c06d08")
 
-HEADERS = {
-    "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}",
-    "Content-Type": "application/json"
-}
+def get_headers():
+    return {
+        "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
 
 def verify_signature(body, signature):
     hash = hmac.new(CHANNEL_SECRET.encode("utf-8"), body, hashlib.sha256).digest()
@@ -23,7 +25,7 @@ def verify_signature(body, signature):
 def reply_message(reply_token, messages):
     url = "https://api.line.me/v2/bot/message/reply"
     data = {"replyToken": reply_token, "messages": messages}
-    r = requests.post(url, headers=HEADERS, json=data)
+    r = requests.post(url, headers=get_headers(), json=data)
     print(f"Reply status: {r.status_code} | {r.text}")
     return r
 
@@ -209,6 +211,7 @@ def webhook():
     body = request.get_data()
     
     if not verify_signature(body, signature):
+        print("Invalid signature!")
         abort(400)
         
     events = request.json.get("events", [])
@@ -256,5 +259,5 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
