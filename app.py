@@ -8,9 +8,17 @@ import os
 
 app = Flask(__name__)
 
-# ดึงค่าจาก Environment Variables (Render) หรือใช้ค่า Default (ถ้ามี)
-CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN", "AS9ZGQqAWg9SK4KD7yMyLUGyTH5A8xvlHjRMdR5ohBZ903bA+Sz060KWiQ4E/3SAjnGs34WevGz+rbcp4PK+U9I0D+LsAFw1XKYQrzaYRPv70kRDHPUC7hzKJrK562wv6Pqh9NM6XHepZIT7EyeEbwdB04t89/1O/w1cDnyilFU=")
-CHANNEL_SECRET = os.environ.get("CHANNEL_SECRET", "ebb901867293f260644563b260c06d08")
+# ดึงค่าจาก Environment Variables (Render)
+CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
+CHANNEL_SECRET = os.environ.get("CHANNEL_SECRET")
+
+# ตรวจสอบว่าได้ตั้งค่า Token และ Secret หรือไม่
+if not CHANNEL_ACCESS_TOKEN:
+    print("Error: CHANNEL_ACCESS_TOKEN is not set in environment variables.")
+    exit(1)
+if not CHANNEL_SECRET:
+    print("Error: CHANNEL_SECRET is not set in environment variables.")
+    exit(1)
 
 def get_headers():
     return {
@@ -19,12 +27,20 @@ def get_headers():
     }
 
 def verify_signature(body, signature):
-    hash = hmac.new(CHANNEL_SECRET.encode("utf-8"), body, hashlib.sha256).digest()
-    return base64.b64encode(hash).decode("utf-8") == signature
+    try:
+        hash = hmac.new(CHANNEL_SECRET.encode("utf-8"), body, hashlib.sha256).digest()
+        calculated_signature = base64.b64encode(hash).decode("utf-8")
+        print(f"Calculated signature: {calculated_signature}")
+        print(f"Received signature: {signature}")
+        return calculated_signature == signature
+    except Exception as e:
+        print(f"Error verifying signature: {e}")
+        return False
 
 def reply_message(reply_token, messages):
     url = "https://api.line.me/v2/bot/message/reply"
     data = {"replyToken": reply_token, "messages": messages}
+    print(f"Attempting to reply with token: {reply_token}, messages: {json.dumps(messages)}")
     r = requests.post(url, headers=get_headers(), json=data)
     print(f"Reply status: {r.status_code} | {r.text}")
     return r
@@ -207,56 +223,65 @@ def index():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    print("Webhook request received!")
     signature = request.headers.get("X-Line-Signature")
-    body = request.get_data()
+    body = request.get_data(as_text=True)
+    print(f"Request body: {body}")
     
-    if not verify_signature(body, signature):
+    if not verify_signature(body.encode('utf-8'), signature):
         print("Invalid signature!")
         abort(400)
         
-    events = request.json.get("events", [])
-    for event in events:
-        if event["type"] == "message" and event["message"]["type"] == "text":
-            reply_token = event["replyToken"]
-            text = event["message"]["text"]
-            
-            if text == 'ข่าวสารหมู่บ้าน':
-                reply_message(reply_token, [get_news_message()])
-            elif text == 'ขอเอกสาร/ใบรับรอง':
-                reply_message(reply_token, [get_document_message()])
-            elif text == 'เบอร์โทรฉุกเฉิน':
-                reply_message(reply_token, [get_emergency_message()])
-            elif text == 'คำถามที่พบบ่อย':
-                reply_text = "❓ คำถามยอดฮิตสำหรับลูกบ้าน:\n1. การทำบัตรประชาชนใหม่\n2. การแจ้งย้ายที่อยู่\n3. การรับเงินอุดหนุนเด็ก\n4. การขอใบรับรองความประพฤติ\n5. การแจ้งเหตุเหตุด่วนเหตุร้าย\n6. ปรึกษาข้อกฎหมาย (ทนาย AI)\n\nต้องการทราบรายละเอียดข้อไหน พิมพ์หมายเลขได้เลยครับ"
-                reply_message(reply_token, [{"type": "text", "text": reply_text}])
-            elif text == 'ติดต่อผู้ใหญ่บ้าน':
-                reply_text = "📞 ช่องทางการติดต่อผู้ใหญ่บ้าน:\n- โทร: [เบอร์โทรของคุณ]\n- ที่ทำการ: [ที่อยู่ของคุณ]\n\nหรือพิมพ์ข้อความทิ้งไว้ที่นี่ได้เลยครับ ผมจะรีบมาตอบกลับ"
-                reply_message(reply_token, [{"type": "text", "text": reply_text}])
-            elif text == 'ทนาย AI' or 'ทนาย' in text:
-                reply_message(reply_token, [get_lawyer_ai_message()])
-            elif text == '1':
-                reply_text = "🪪 การทำบัตรประชาชนใหม่:\n1. เตรียมบัตรเดิม (ถ้ามี)\n2. ไปที่อำเภอ/เทศบาล\n3. ค่าธรรมเนียม 100 บาท (กรณีหาย/ชำรุด)\n\nไม่ต้องใช้สำเนาทะเบียนบ้านแล้วครับ"
-                reply_message(reply_token, [{"type": "text", "text": reply_text}])
-            elif text == '2':
-                reply_text = "🏠 การแจ้งย้ายที่อยู่:\n1. เจ้าบ้านนำทะเบียนบ้านไปแจ้งที่อำเภอ\n2. แจ้งย้ายเข้าภายใน 15 วัน\n3. เตรียมบัตรประชาชนเจ้าบ้านและผู้ย้าย"
-                reply_message(reply_token, [{"type": "text", "text": reply_text}])
-            elif text == '3':
-                reply_text = "👶 การรับเงินอุดหนุนเด็ก:\n1. เด็กอายุ 0-6 ปี\n2. รายได้ครอบครัวเฉลี่ยไม่เกิน 100,000 บาท/คน/ปี\n3. ลงทะเบียนได้ที่ อบต./เทศบาล"
-                reply_message(reply_token, [{"type": "text", "text": reply_text}])
-            elif text == '4':
-                reply_text = "📄 การขอใบรับรองความประพฤติ:\n1. เตรียมบัตรประชาชน\n2. มาพบผู้ใหญ่บ้านที่ที่ทำการ\n3. แจ้งวัตถุประสงค์การนำไปใช้"
-                reply_message(reply_token, [{"type": "text", "text": reply_text}])
-            elif text == '5':
-                reply_text = "🚨 การแจ้งเหตุเหตุด่วนเหตุร้าย:\n1. โทร 191 ทันที\n2. แจ้งพิกัดและลักษณะเหตุการณ์\n3. แจ้งชื่อและเบอร์โทรผู้แจ้ง\n\nหรือกดปุ่ม 'เบอร์โทรฉุกเฉิน' เพื่อดูเบอร์อื่นๆ ครับ"
-                reply_message(reply_token, [{"type": "text", "text": reply_text}])
-            elif text == '6':
-                reply_message(reply_token, [get_lawyer_ai_message()])
-            else:
-                # ข้อความทั่วไป
-                reply_text = f"สวัสดีครับ ผมเป็นผู้ช่วยอัตโนมัติของคุณ\nคุณพิมพ์ว่า: {text}\n\nหากต้องการความช่วยเหลือ กรุณากดเมนูที่ด้านล่างได้เลยครับ 🙏"
-                reply_message(reply_token, [{"type": "text", "text": reply_text}])
+    try:
+        events = request.json.get("events", [])
+        print(f"Parsed events: {json.dumps(events)}")
+        for event in events:
+            print(f"Processing event: {json.dumps(event)}")
+            if event["type"] == "message" and event["message"]["type"] == "text":
+                reply_token = event["replyToken"]
+                text = event["message"]["text"]
+                print(f"Received text message: {text} with reply token: {reply_token}")
                 
-    return "OK", 200
+                if text == 'ข่าวสารหมู่บ้าน':
+                    reply_message(reply_token, [get_news_message()])
+                elif text == 'ขอเอกสาร/ใบรับรอง':
+                    reply_message(reply_token, [get_document_message()])
+                elif text == 'เบอร์โทรฉุกเฉิน':
+                    reply_message(reply_token, [get_emergency_message()])
+                elif text == 'คำถามที่พบบ่อย':
+                    reply_text = "❓ คำถามยอดฮิตสำหรับลูกบ้าน:\n1. การทำบัตรประชาชนใหม่\n2. การแจ้งย้ายที่อยู่\n3. การรับเงินอุดหนุนเด็ก\n4. การขอใบรับรองความประพฤติ\n5. การแจ้งเหตุเหตุด่วนเหตุร้าย\n6. ปรึกษาข้อกฎหมาย (ทนาย AI)\n\nต้องการทราบรายละเอียดข้อไหน พิมพ์หมายเลขได้เลยครับ"
+                    reply_message(reply_token, [{"type": "text", "text": reply_text}])
+                elif text == 'ติดต่อผู้ใหญ่บ้าน':
+                    reply_text = "📞 ช่องทางการติดต่อผู้ใหญ่บ้าน:\n- โทร: [เบอร์โทรของคุณ]\n- ที่ทำการ: [ที่อยู่ของคุณ]\n\nหรือพิมพ์ข้อความทิ้งไว้ที่นี่ได้เลยครับ ผมจะรีบมาตอบกลับ"
+                    reply_message(reply_token, [{"type": "text", "text": reply_text}])
+                elif text == 'ทนาย AI' or 'ทนาย' in text:
+                    reply_message(reply_token, [get_lawyer_ai_message()])
+                elif text == '1':
+                    reply_text = "🪪 การทำบัตรประชาชนใหม่:\n1. เตรียมบัตรเดิม (ถ้ามี)\n2. ไปที่อำเภอ/เทศบาล\n3. ค่าธรรมเนียม 100 บาท (กรณีหาย/ชำรุด)\n\nไม่ต้องใช้สำเนาทะเบียนบ้านแล้วครับ"
+                    reply_message(reply_token, [{"type": "text", "text": reply_text}])
+                elif text == '2':
+                    reply_text = "🏠 การแจ้งย้ายที่อยู่:\n1. เจ้าบ้านนำทะเบียนบ้านไปแจ้งที่อำเภอ\n2. แจ้งย้ายเข้าภายใน 15 วัน\n3. เตรียมบัตรประชาชนเจ้าบ้านและผู้ย้าย"
+                    reply_message(reply_token, [{"type": "text", "text": reply_text}])
+                elif text == '3':
+                    reply_text = "👶 การรับเงินอุดหนุนเด็ก:\n1. เด็กอายุ 0-6 ปี\n2. รายได้ครอบครัวเฉลี่ยไม่เกิน 100,000 บาท/คน/ปี\n3. ลงทะเบียนได้ที่ อบต./เทศบาล"
+                    reply_message(reply_token, [{"type": "text", "text": reply_text}])
+                elif text == '4':
+                    reply_text = "📄 การขอใบรับรองความประพฤติ:\n1. เตรียมบัตรประชาชน\n2. มาพบผู้ใหญ่บ้านที่ที่ทำการ\n3. แจ้งวัตถุประสงค์การนำไปใช้"
+                    reply_message(reply_token, [{"type": "text", "text": reply_text}])
+                elif text == '5':
+                    reply_text = "🚨 การแจ้งเหตุเหตุด่วนเหตุร้าย:\n1. โทร 191 ทันที\n2. แจ้งพิกัดและลักษณะเหตุการณ์\n3. แจ้งชื่อและเบอร์โทรผู้แจ้ง\n\nหรือกดปุ่ม 'เบอร์โทรฉุกเฉิน' เพื่อดูเบอร์อื่นๆ ครับ"
+                    reply_message(reply_token, [{"type": "text", "text": reply_text}])
+                elif text == '6':
+                    reply_message(reply_token, [get_lawyer_ai_message()])
+                else:
+                    # ข้อความทั่วไป
+                    reply_text = f"สวัสดีครับ ผมเป็นผู้ช่วยอัตโนมัติของคุณ\nคุณพิมพ์ว่า: {text}\n\nหากต้องการความช่วยเหลือ กรุณากดเมนูที่ด้านล่างได้เลยครับ 🙏"
+                    reply_message(reply_token, [{"type": "text", "text": reply_text}])
+                    
+        return "OK", 200
+    except Exception as e:
+        print(f"Error processing event: {e}")
+        return "Error", 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
